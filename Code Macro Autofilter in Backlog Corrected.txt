@@ -1,0 +1,1468 @@
+Sub McrUpdateAllSpecs()
+'
+' McrUpdateAllSpecs Macro
+'
+
+    Sheets("SPP").Select
+    Sheets("SPPSpecs").Visible = True
+    Sheets("SPPSpecs").Select
+    Range("Table_Sms_Pol3[[#Headers],[MATERIAL_SPEC_NBR]]").Select
+    Selection.ListObject.QueryTable.Refresh BackgroundQuery:=False
+    Sheets("SPPSpecs").Visible = False
+    Sheets("SPQspecs").Visible = True
+    Sheets("SPQspecs").Select
+    Range("Table_Query_from_spqods5[[#Headers],[MATERIAL_SPEC_NBR]]").Select
+    Selection.ListObject.QueryTable.Refresh BackgroundQuery:=False
+    Sheets("SPQSpecs").Visible = False
+    Sheets("BacklogDB").Visible = True
+    Sheets("BacklogDB").Select
+    Range("Table_Default__V_SALES_ALLOCATION[[#Headers],[Ship-to]]").Select
+    Selection.ListObject.QueryTable.Refresh BackgroundQuery:=False
+    
+    Sheets("SPP").Select
+    Range("D3").Select
+    
+    
+    If (GetUserName = "nmartin" Or GetUserName = "amoreno") Then Load_Backlog
+    
+    
+End Sub
+
+Sub PasteNewBacklog()
+
+    Workbooks("BL").Activate
+    Sheets("Sheet1").Select
+    Cells.Select
+    Selection.Clear
+    
+    Windows("SPX allocation report active file.xlsm").Activate
+    Sheets("BacklogDB").Select
+    Range("A1").Select
+    Selection.AutoFilter
+  
+    Range(Selection, Selection.End(xlToRight)).Select
+    Range(Selection, Selection.End(xlDown)).Select
+    Selection.Copy
+    
+    Workbooks("BL").Activate
+    Sheets("Sheet1").Select
+    Range("A1").Select
+    Selection.PasteSpecial Paste:=xlPasteValuesAndNumberFormats, Operation:= _
+        xlNone, SkipBlanks:=False, Transpose:=False
+
+End Sub
+
+
+Sub Load_Backlog()
+'
+' Load_Backlog Macro
+' Refreshes backlog, LPS SPP, LPS SPQ and Excess and Obsolete files
+'
+
+'On Error GoTo ErrorHandler
+GetUserName
+
+Application.ScreenUpdating = False
+Application.DisplayAlerts = False
+
+Load_Excess_and_Obsolete
+'
+Load_LPS
+
+Dim strFileName As String
+'strFileName = "C:\Users\" & GetUserName & "\Documents\Macros\Files Allocation\BL.xlsx"
+strFileName = "C:\SP\BL.xlsx"
+
+If (CheckFileExists(strFileName)) Then
+'' Workbooks.Open strFileName
+   Kill strFileName
+End If
+
+'Adding New Workbook
+    Workbooks.Add
+
+    'Saving the Workbook
+    ActiveWorkbook.SaveAs "C:\SP\BL.xlsx"
+
+PasteNewBacklog
+ 
+Load_BL_OpenQty
+
+Load_Backlog_into_Alloc
+
+LoadQuals
+
+Workbooks("BL").Activate
+ActiveWorkbook.Close SaveChanges:=True
+
+Application.ScreenUpdating = True
+
+'Exit Sub
+
+'ErrorHandler:
+ '   MsgBox "There is an error in one of your files, make sure you are using latest clean databases for upload"
+  '  Exit Sub
+
+End Sub
+
+ Sub Load_Backlog_into_Alloc()
+ 
+ 'Load_Formulated_Rows
+ 
+Application.DisplayAlerts = False
+
+CopyPasteFormulasShipTo
+
+BuildPivotforAlloc
+ 
+LoadBL
+
+ End Sub
+Sub LoadBL()
+
+Dim FirstMonth As String
+Dim LastMonth As String
+Dim CounterMonthsLate As Integer
+Dim CounterMonthsWithBL As Integer
+Dim FirstMonthPosition As Integer
+Dim LastMonthWithBLPosition As Integer
+Dim CounterMonthsOpen As Integer
+Dim j As Integer
+
+Windows("SPX allocation report active file.xlsm").Activate
+Sheets("SPQ").Select
+
+FirstMonth = Range("P1").Value
+If Range("Z2").Value = "BL" Then
+LastMonth = Range("Y1").Value
+Else: LastMonth = Range("V1").Value
+End If
+
+
+'Search Index Column : Looks for Material%ShipTo Identifier Column
+    
+    j = 15
+
+CicloFindNumberedCellsSPQ:
+    If Cells(2, j).Value = "3m demand" Then
+    Else
+    j = j + 1
+    GoTo CicloFindNumberedCellsSPQ
+    End If
+    
+
+InsertNewPNs 1200, FirstMonth, LastMonth, j - 1
+        
+InsertNewPNs 1100, FirstMonth, LastMonth, j - 1 - 14 + 23
+
+End Sub
+
+Sub InsertNewPNs(Plant As Integer, FirstMonth As String, LastMonth As String, LastColumnTable As Integer)
+
+    Dim LastRowPivot As Integer
+    Dim LastRowPlant As Integer
+
+
+
+If Plant = 1200 Then
+
+    Workbooks("BL").Worksheets("PivotBLAlloc").Activate
+
+    ActiveSheet.PivotTables("PivotBL").RowGrand = False
+    ActiveSheet.PivotTables("PivotBL").PivotFields("Plant").ClearAllFilters
+    ActiveSheet.PivotTables("PivotBL").PivotFields("Plant").CurrentPage = _
+        "1200"
+
+    Range("B5").Select
+    Selection.End(xlDown).Select
+    LastRowPivot = ActiveCell.Row - 1
+
+  Range("A6").Select
+  'CountIf para determinar si el PN esta en allocation
+  ActiveCell.FormulaR1C1 = _
+  "=COUNTIF('[SPX allocation report active file.xlsm]SPQ'!C" & LastColumnTable + 2 & ",RC[11])"
+  Selection.Copy
+  Range(Cells(7, 1), Cells(LastRowPivot, 1)).Select
+  ActiveSheet.Paste
+  Application.CutCopyMode = False
+
+
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPQ").Activate
+
+If ActiveSheet.AutoFilterMode Then
+     ActiveSheet.AutoFilterMode = False
+  End If
+
+    Range("A10").Select
+    Selection.End(xlDown).Select
+    LastRowPlant = ActiveCell.Row
+  
+
+For i = 6 To LastRowPivot
+Workbooks("BL").Worksheets("PivotBLAlloc").Activate
+Exist = Cells(i, 1).Value
+    
+If Exist = 0 Then
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPQ").Activate
+    Rows("3:3").Select
+    Application.CutCopyMode = False
+    Selection.Copy
+    Rows("3:3").Select
+    Selection.Insert Shift:=xlDown
+    Range("A3").Select
+    ActiveCell = "Unassigned"
+    Range("O3").Select
+    Application.CutCopyMode = False
+    ActiveCell.FormulaR1C1 = "0"
+    Range("O3").Select
+    Selection.Copy
+  
+    Range(Cells(3, 15), Cells(3, LastColumnTable)).Select
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, SkipBlanks _
+        :=False, Transpose:=False
+
+Workbooks("BL").Worksheets("PivotBLAlloc").Activate
+Range(Cells(i, 2), Cells(i, 11)).Select
+Selection.Copy
+
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPQ").Activate
+Range(Cells(3, 2), Cells(3, 11)).Select
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, SkipBlanks _
+        :=False, Transpose:=False
+
+Range(Cells(3, 4), Cells(3, 5)).Select
+Selection.Interior.Color = 65535
+LastRowPlant = LastRowPlant + 1
+
+
+'Brings the Tier
+Cells(3, 1).Select
+ActiveCell.FormulaR1C1 = "=+VLOOKUP(RC[5],'[account list.xlsx]sap'!C1:C17,17,0)"
+Selection.Copy
+Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, SkipBlanks _
+        :=False, Transpose:=False
+
+
+End If
+
+Next i
+
+
+'Sort All Table with new data
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPQ").Activate
+
+    Range("A2").Select
+    Range(Selection, Selection.End(xlToRight)).Select
+    Range(Selection, Selection.End(xlDown)).Select
+    
+'Dim TempRange As Range
+'TempRange = Range(Cells(2, 1), Cells(LastRow, 75))
+    
+    If Not ActiveSheet.AutoFilterMode Then
+        Selection.AutoFilter
+    End If
+    ActiveWorkbook.Worksheets("SPQ").AutoFilter.Sort.SortFields.Clear
+    ActiveWorkbook.Worksheets("SPQ").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "B3:B" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    ActiveWorkbook.Worksheets("SPQ").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "C3:C" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    ActiveWorkbook.Worksheets("SPQ").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "D3:D" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    ActiveWorkbook.Worksheets("SPQ").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "E3:E" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortTextAsNumbers
+    ActiveWorkbook.Worksheets("SPQ").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "F3:F" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    ActiveWorkbook.Worksheets("SPQ").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "G3:G" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    ActiveWorkbook.Worksheets("SPQ").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "H3:H" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    With ActiveWorkbook.Worksheets("SPQ").AutoFilter.Sort
+        .Header = xlYes
+        .MatchCase = False
+        .Orientation = xlTopToBottom
+        .SortMethod = xlPinYin
+        .Apply
+    End With
+  
+ 
+Else
+
+'Insert Part Numbers for SPP
+
+
+Workbooks("BL").Worksheets("PivotBLAlloc").Activate
+
+    ActiveSheet.PivotTables("PivotBL").RowGrand = False
+    ActiveSheet.PivotTables("PivotBL").PivotFields("Plant").ClearAllFilters
+    ActiveSheet.PivotTables("PivotBL").PivotFields("Plant").CurrentPage = _
+        "1100"
+        
+    Range("B5").Select
+    Selection.End(xlDown).Select
+    LastRowPivot = ActiveCell.Row - 1
+
+Range("A6").Select
+  'CountIf para determinar si el PN esta en allocation
+  ActiveCell.FormulaR1C1 = _
+  "=COUNTIF('[SPX allocation report active file.xlsm]SPP'!C" & LastColumnTable + 2 & ",RC[11])"
+  Selection.Copy
+  Range(Cells(7, 1), Cells(LastRowPivot, 1)).Select
+  ActiveSheet.Paste
+  Application.CutCopyMode = False
+
+
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPP").Activate
+
+If ActiveSheet.AutoFilterMode Then
+     ActiveSheet.AutoFilterMode = False
+  End If
+
+    Range("A10").Select
+    Selection.End(xlDown).Select
+    LastRowPlant = ActiveCell.Row
+
+For i = 6 To LastRowPivot
+Workbooks("BL").Worksheets("PivotBLAlloc").Activate
+Exist = Cells(i, 1).Value
+    
+If Exist = 0 Then
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPP").Activate
+    Rows("11:11").Select
+    Application.CutCopyMode = False
+    Selection.Copy
+    Rows("11:11").Select
+    Selection.Insert Shift:=xlDown
+    Range("A11").Select
+    ActiveCell = "Unassigned"
+    Range("X11").Select
+    Application.CutCopyMode = False
+    ActiveCell.FormulaR1C1 = "0"
+    Range("X11").Select
+    Selection.Copy
+     
+'    j = 24
+
+'CicloFindNumberedCellsSPP:
+ '   If Cells(10, j).Value = "3m demand" Then
+  '  Else
+   ' j = j + 1
+   ' GoTo CicloFindNumberedCellsSPP
+    'End If
+    
+    Range(Cells(11, 24), Cells(11, LastColumnTable)).Select
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, SkipBlanks _
+        :=False, Transpose:=False
+
+Workbooks("BL").Worksheets("PivotBLAlloc").Activate
+Range(Cells(i, 2), Cells(i, 6)).Select
+Selection.Copy
+
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPP").Activate
+Range(Cells(11, 2), Cells(11, 6)).Select
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, SkipBlanks _
+        :=False, Transpose:=False
+
+Range(Cells(11, 4), Cells(11, 5)).Select
+Selection.Interior.Color = 65535
+LastRowPlant = LastRowPlant + 1
+
+'Brings the Tier
+Cells(11, 1).Select
+ActiveCell.FormulaR1C1 = "=+VLOOKUP(RC[5],'[account list.xlsx]sap'!C1:C17,16,0)"
+Selection.Copy
+Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, SkipBlanks _
+        :=False, Transpose:=False
+
+
+End If
+
+Next i
+
+
+'Sort All Table with new data
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPP").Activate
+
+    Range("A10").Select
+    Range(Selection, Selection.End(xlToRight)).Select
+    Range(Selection, Selection.End(xlDown)).Select
+    
+    If Not ActiveSheet.AutoFilterMode Then
+        Selection.AutoFilter
+    End If
+    ActiveWorkbook.Worksheets("SPP").AutoFilter.Sort.SortFields.Clear
+    ActiveWorkbook.Worksheets("SPP").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "B11:B" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    ActiveWorkbook.Worksheets("SPP").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "C11:C" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    ActiveWorkbook.Worksheets("SPP").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "D11:D" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    ActiveWorkbook.Worksheets("SPP").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "E11:E" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortTextAsNumbers
+    ActiveWorkbook.Worksheets("SPP").AutoFilter.Sort.SortFields.Add Key:=Range( _
+        "F11:F" & LastRowPlant), SortOn:=xlSortOnValues, Order:=xlAscending, DataOption:= _
+        xlSortNormal
+    With ActiveWorkbook.Worksheets("SPP").AutoFilter.Sort
+        .Header = xlYes
+        .MatchCase = False
+        .Orientation = xlTopToBottom
+        .SortMethod = xlPinYin
+        .Apply
+    End With
+
+    Workbooks("account list").Worksheets("sap").Activate
+    ActiveWorkbook.Close SaveChanges:=False
+    
+End If
+
+
+Workbooks("SPX allocation report active file.xlsm").Activate
+LoadBLIntoAlloc Plant, FirstMonth, LastMonth, LastRowPivot, LastRowPlant, LastColumnTable + 2
+
+End Sub
+
+Sub LoadBLIntoAlloc(Plant As Integer, FirstMonth As String, LastMonth As String, LastRowPivot As Integer, LastRowPlant As Integer, IndexColumn As Integer)
+
+Workbooks("BL").Worksheets("PivotBLAlloc").Activate
+
+ActiveSheet.PivotTables("PivotBL").PivotFields("Capacity Category"). _
+        Orientation = xlHidden
+ 
+'Recalculate LAstRowPivot
+Range("B5").Select
+Selection.End(xlDown).Select
+LastRowPivot = ActiveCell.Row - 1
+
+'Calcula Cantidad de Meses Late
+CounterMonthsLate = 0
+
+For i = 6 To LastRowPivot
+Cells(i, 26).Select
+ActiveCell = 0
+Next i
+
+CountMonthsLate:
+
+Cells(5, 11 + CounterMonthsLate + 1).Select
+
+If (FirstMonth <> ActiveCell) Then
+
+For i = 6 To LastRowPivot
+Cells(i, 26).Select
+
+If Cells(i, 11 + CounterMonthsLate + 1).Value = "" Then
+ActiveCell = ActiveCell + 0
+Else
+ActiveCell = ActiveCell + Cells(i, 11 + CounterMonthsLate + 1).Value
+End If
+Next i
+
+CounterMonthsLate = CounterMonthsLate + 1
+
+GoTo CountMonthsLate
+
+End If
+
+
+Range(Cells(6, 26), Cells(LastRowPivot, 26)).Select
+Selection.Copy
+'Range(Cells(6, 27), Cells(LastRowPivot, 27)).Select
+'Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, _
+ '       SkipBlanks:=False, Transpose:=False
+
+FirstMonthPosition = 11 + CounterMonthsLate + 1
+
+CounterMonthsWithBL = 0
+
+CountLastMonthWithBacklog:
+
+Cells(5, FirstMonthPosition + CounterMonthsWithBL + 1).Select
+
+If (ActiveCell <> LastMonth And ActiveCell <> "") Then
+    CounterMonthsWithBL = CounterMonthsWithBL + 1
+    GoTo CountLastMonthWithBacklog
+End If
+
+If (ActiveCell = LastMonth) Then CounterMonthsWithBL = CounterMonthsWithBL + 1
+
+LastMonthWithBLPosition = FirstMonthPosition + CounterMonthsWithBL
+
+If Plant = 1200 Then
+
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPQ").Activate
+    Range("O3").Select
+   ActiveCell.FormulaR1C1 = _
+       "=VLOOKUP(RC[" & IndexColumn - 15 & "],[BL.xlsx]PivotBLAlloc!R6C11:R" & LastRowPivot & "C26,16,0)"
+    Selection.Copy
+    Range(Cells(3, 15), Cells(LastRowPlant, 15)).Select
+    Selection.PasteSpecial Paste:=xlPasteFormulas, Operation:=xlNone, _
+        SkipBlanks:=False, Transpose:=False
+    Selection.Copy
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, _
+        SkipBlanks:=False, Transpose:=False
+
+Dim MonthPos As Integer
+Dim MonthinAlloc As Integer
+
+MonthPosinBL = FirstMonthPosition
+MonthPosinAlloc = 17
+
+CicloUpdateOtherMonths:
+
+If (MonthPosinBL <= LastMonthWithBLPosition) Then
+
+Cells(3, MonthPosinAlloc).Select
+  ActiveCell.FormulaR1C1 = _
+       "=VLOOKUP(RC[" & IndexColumn - MonthPosinAlloc & "],[BL.xlsx]PivotBLAlloc!R6C11:R" & LastRowPivot & "C26," & MonthPosinBL - 11 + 1 & ",0)"
+
+    Selection.Copy
+    Range(Cells(3, MonthPosinAlloc), Cells(LastRowPlant, MonthPosinAlloc)).Select
+    Selection.PasteSpecial Paste:=xlPasteFormulas, Operation:=xlNone, _
+        SkipBlanks:=False, Transpose:=False
+    Selection.Copy
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, _
+        SkipBlanks:=False, Transpose:=False
+
+MonthPosinBL = MonthPosinBL + 1
+MonthPosinAlloc = MonthPosinAlloc + 3
+
+GoTo CicloUpdateOtherMonths
+
+End If
+
+Range(Cells(3, 15), Cells(LastRowPlant, MonthPosinAlloc - 3)).Select
+    Selection.Copy
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, SkipBlanks _
+        :=False, Transpose:=False
+    Selection.Replace What:="#N/A", Replacement:="0", LookAt:=xlPart, _
+        SearchOrder:=xlByRows, MatchCase:=False, SearchFormat:=False, _
+        ReplaceFormat:=False
+        
+Else
+
+Workbooks("SPX allocation report active file.xlsm").Worksheets("SPP").Activate
+
+'Aca Comienza el Texto Modificado
+
+    Range("X11").Select
+   ActiveCell.FormulaR1C1 = _
+       "=VLOOKUP(RC[" & IndexColumn - 24 & "],[BL.xlsx]PivotBLAlloc!R6C11:R" & LastRowPivot & "C26,16,0)"
+    Selection.Copy
+    Range(Cells(11, 24), Cells(LastRowPlant, 24)).Select
+    Selection.PasteSpecial Paste:=xlPasteFormulas, Operation:=xlNone, _
+        SkipBlanks:=False, Transpose:=False
+    Selection.Copy
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, _
+        SkipBlanks:=False, Transpose:=False
+
+MonthPosinBL = FirstMonthPosition
+MonthPosinAlloc = 26
+
+CicloUpdateOtherMonthsSPP:
+
+If (MonthPosinBL <= LastMonthWithBLPosition) Then
+
+Cells(11, MonthPosinAlloc).Select
+  ActiveCell.FormulaR1C1 = _
+       "=VLOOKUP(RC[" & IndexColumn - MonthPosinAlloc & "],[BL.xlsx]PivotBLAlloc!R6C11:R" & LastRowPivot & "C26," & MonthPosinBL - 11 + 1 & ",0)"
+
+    Selection.Copy
+    Range(Cells(11, MonthPosinAlloc), Cells(LastRowPlant, MonthPosinAlloc)).Select
+    Selection.PasteSpecial Paste:=xlPasteFormulas, Operation:=xlNone, _
+        SkipBlanks:=False, Transpose:=False
+    Selection.Copy
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, _
+        SkipBlanks:=False, Transpose:=False
+
+MonthPosinBL = MonthPosinBL + 1
+MonthPosinAlloc = MonthPosinAlloc + 3
+
+GoTo CicloUpdateOtherMonthsSPP
+
+End If
+
+Range(Cells(11, 24), Cells(LastRowPlant, MonthPosinAlloc - 3)).Select
+    Selection.Copy
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, SkipBlanks _
+        :=False, Transpose:=False
+    Selection.Replace What:="#N/A", Replacement:="0", LookAt:=xlPart, _
+        SearchOrder:=xlByRows, MatchCase:=False, SearchFormat:=False, _
+        ReplaceFormat:=False
+
+
+End If
+   
+    Workbooks("BL").Worksheets("PivotBLAlloc").Activate
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Capacity Category")
+        .Orientation = xlRowField
+        .Position = 10
+    End With
+
+End Sub
+Sub LoadQuals()
+Sheets("PivotBLAlloc").Select
+    Sheets("PivotBLAlloc").Copy Before:=Sheets(1)
+    Sheets("PivotBLAlloc (2)").Select
+    Sheets("PivotBLAlloc (2)").Name = "Quals"
+    
+    'Adding OpenQty to the pivot filters
+    
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Open qty.")
+        .Orientation = xlPageField
+        .Position = 1
+    End With
+    
+    'Adding Shipping dates to the table
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Sched. ship")
+        .Orientation = xlRowField
+        .Position = 1
+    End With
+    
+'    Windows("SPX allocation report active file.xlsm").Activate
+'    Windows("BL.xlsx").Activate
+    
+    ActiveSheet.PivotTables("PivotBL").PivotFields("Ship month").Orientation = _
+        xlHidden
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Sales type")
+        .Orientation = xlColumnField
+        .Position = 1
+    End With
+    
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Sales type")
+        .AutoSort xlManual, "Sales type"
+        
+        On Error Resume Next
+        .PivotItems("ZEPI").Visible = False
+        .PivotItems("ZFOS").Visible = False
+        .PivotItems("ZKB").Visible = False
+        .PivotItems("ZKR").Visible = False
+        .PivotItems("ZOR").Visible = False
+        .PivotItems("ZRE").Visible = False
+        .PivotItems("ZTOR").Visible = False
+        .PivotItems("ZWB").Visible = False
+        On Error GoTo 0
+        
+    End With
+        
+        
+    ActiveSheet.PivotTables("PivotBL").PivotFields("Plant").ClearAllFilters
+    ActiveSheet.PivotTables("PivotBL").PivotFields("Plant").CurrentPage = "1200"
+'    ActiveSheet.PivotTables("PivotBL").PivotFields("Open qty.").CurrentPage = _
+ '       "(All)"
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Open qty.")
+        On Error Resume Next
+        .PivotItems("0.000").Visible = False
+        .PivotItems("0").Visible = False
+        On Error GoTo 0
+    End With
+    
+    ActiveSheet.PivotTables("PivotBL").PivotFields("Open qty."). _
+        EnableMultiplePageItems = True
+    
+    Windows("SPX allocation report active file.xlsm").Activate
+    
+    Worksheets("SPQ Quals").Activate
+    'Sheets("SPQ Quals").Select
+    Cells.Select
+    Selection.Clear
+    
+    Windows("BL.xlsx").Activate
+    Sheets("Quals").Select
+'    ActiveSheet.PivotTables("PivotBL").PivotSelect "", xlDataAndLabel, True
+    Range("B6").Select
+    Range(Selection, Selection.End(xlDown)).Select
+    Range(Selection, Selection.End(xlToRight)).Select
+    Selection.Copy
+    
+    Windows("SPX allocation report active file.xlsm").Activate
+    Sheets("SPQ Quals").Activate
+    Range("A1").Select
+    ActiveSheet.Paste
+
+End Sub
+
+Sub BuildPivotforAlloc()
+
+'Declaring variables for Pivot
+Application.DisplayAlerts = False
+'Worksheets("PivotTable").Delete
+Sheets.Add Before:=ActiveSheet
+ActiveSheet.Name = "PivotBLAlloc"
+Application.DisplayAlerts = True
+Set PSheet = Worksheets("PivotBLAlloc")
+Set DSheet = Worksheets("Data")
+
+
+'Defining Data Range
+
+LastR = DSheet.Cells(Rows.Count, 1).End(xlUp).Row
+LastCol = DSheet.Cells(1, Columns.Count).End(xlToLeft).Column
+Set PRange = DSheet.Cells(1, 1).Resize(LastR, LastCol)
+'
+
+'Define Pivot Cache
+Set PCache = ActiveWorkbook.PivotCaches.Create _
+(SourceType:=xlDatabase, SourceData:=PRange)
+
+'Insert Blank Pivot Table
+Set PTable = PCache.CreatePivotTable _
+(TableDestination:=PSheet.Cells(2, 2), TableName:="PivotBL")
+
+'Insert Main Filters
+With ActiveSheet.PivotTables("PivotBL").PivotFields("Plant")
+        .Orientation = xlPageField
+        .Position = 1
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Type")
+        .Orientation = xlPageField
+        .Position = 1
+    End With
+ 
+
+'Insert Row Fields
+With ActiveSheet.PivotTables("PivotBL").PivotFields("Customer")
+        .Orientation = xlRowField
+        .Position = 1
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Manager")
+        .Orientation = xlRowField
+        .Position = 2
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Customer mat.")
+        .Orientation = xlRowField
+        .Position = 3
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Material")
+        .Orientation = xlRowField
+        .Position = 4
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Ship-to")
+        .Orientation = xlRowField
+        .Position = 5
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Substrate MS")
+        .Orientation = xlRowField
+        .Position = 6
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Reactor Type")
+        .Orientation = xlRowField
+        .Position = 7
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Epi Structure Catego")
+        .Orientation = xlRowField
+        .Position = 8
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Thickness")
+        .Orientation = xlRowField
+        .Position = 9
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Capacity Category")
+        .Orientation = xlRowField
+        .Position = 10
+    End With
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Material%Ship-to")
+        .Orientation = xlRowField
+        .Position = 11
+    End With
+    
+'Insert Columns
+    With ActiveSheet.PivotTables("PivotBL").PivotFields("Ship month")
+        .Orientation = xlColumnField
+        .Position = 1
+    End With
+
+'Insert Data
+    ActiveSheet.PivotTables("PivotBL").AddDataField ActiveSheet.PivotTables( _
+        "PivotBL").PivotFields("Total qty."), "Sum of Total qty.", xlSum
+    
+'Giving Format
+    ActiveSheet.PivotTables("PivotBL").RowAxisLayout xlTabularRow
+    ActiveSheet.PivotTables("PivotBL").RepeatAllLabels xlRepeatLabels
+    
+   'Delete Subtotals
+    Dim PvtTbl As PivotTable
+    Dim pvtFld As PivotField
+
+        Set PvtTbl = ActiveSheet.PivotTables(1)
+
+    'hide Subtotals for all fields in the PivotTable .
+
+        With PvtTbl
+        For Each pvtFld In .PivotFields
+        pvtFld.Subtotals(1) = True
+        pvtFld.Subtotals(1) = False
+        Next pvtFld
+        End With
+   
+  
+ '   ActiveSheet.PivotTables("PivotBL").RowGrand = False
+  '  ActiveSheet.PivotTables("PivotBL").PivotFields("Plant").ClearAllFilters
+   ' ActiveSheet.PivotTables("PivotBL").PivotFields("Plant").CurrentPage = _
+    '    "1200"
+
+
+End Sub
+
+Sub CopyPasteFormulasShipTo()
+
+Workbooks("BL").Worksheets("Data").Activate
+
+    Columns("B:E").Select
+    Selection.Insert Shift:=xlToRight, CopyOrigin:=xlFormatFromLeftOrAbove
+    
+    Columns("F:F").Select
+    Selection.Insert Shift:=xlToRight, CopyOrigin:=xlFormatFromLeftOrAbove
+
+    
+'Application.Workbooks.Open Filename:="C:\Users\" & GetUserName & "\Documents\Macros\Files Allocation\formulas", UpdateLinks:=False
+
+Application.Workbooks.Open Filename:="C:\SP\account list"
+
+''Workbooks("account list").Worksheets("sap").Activate
+
+'Range("B9").Select
+'Selection.End(xlDown).Select
+'Range(Cells(Selection.Row, Selection.Column), Cells(Selection.Row, Selection.Column + 3)).Select
+'Selection.Copy
+
+Workbooks("BL").Worksheets("Data").Activate
+
+    For i = 1 To 4
+    
+    Cells(1, i + 1).Select
+    ActiveCell.FormulaR1C1 = "=+VLOOKUP(RC[" & -i & "],'[account list.xlsx]sap'!C1:C5," & i + 1 & ",0)"
+    
+    Next i
+    
+    Range(Cells(1, 2), Cells(1, 5)).Select
+    Selection.Copy
+    
+    Range(Cells(2, 2), Cells(LastRow, 5)).Select
+    
+    ActiveSheet.Paste
+    Application.CutCopyMode = False
+
+    Range("F1").Select
+    ActiveCell.FormulaR1C1 = "=RC[9]&""%""&RC[-5]"
+    Selection.Copy
+    Range(Cells(1, 6), Cells(LastRow, 6)).Select
+    ActiveSheet.Paste
+    Application.CutCopyMode = False
+    
+'Workbooks("formulas").Close SaveChanges:=False
+    
+Workbooks("BL").Worksheets("Data").Activate
+    
+End Sub
+
+ Sub Load_Excess_and_Obsolete()
+ 
+ 
+ Dim strFileName As String
+    strFileName = "C:\SP\Excess.xls"
+
+    If (CheckFileExists(strFileName)) Then
+    Workbooks.Open strFileName
+    Else
+    MsgBox "Excess and Obsolete File Does not Exist"
+    Exit Sub
+    End If
+ 
+    Windows("SPX allocation report active file.xlsm").Activate
+    Sheets("SPQ").Select
+    
+    'Sheets("Excess WIP & Inventory").Visible = True
+    'It is not necessary to open the hidden tabs to work on them.. We can run coding underneath on hidden tabs
+    
+    Worksheets("Excess WIP & Inventory").Activate
+    Cells.Select
+    Selection.Clear
+    
+    Workbooks.Open "C:\SP\Excess"
+    Workbooks("Excess").Worksheets("Detail").Activate
+    Range("A3").Select
+    Range(Selection, Selection.End(xlToRight)).Select
+    Range(Selection, Selection.End(xlDown)).Select
+    Selection.Copy
+    
+    Windows("SPX allocation report active file.xlsm").Activate
+    
+    Range("A1").Select
+    ActiveSheet.Paste
+    'ActiveSheet.Visible = False
+    
+    Workbooks("Excess").Worksheets("Detail").Activate
+    'Always put the Select and Copy Range A1 to avoid the clipboard popup
+    ActiveSheet.Range("A1").Copy
+    ActiveWorkbook.Close SaveChanges:=False
+    
+    
+ End Sub
+ 
+ Sub Load_LPS()
+ 
+ Reset_LPS_BL_Data
+ Paste_Summary_SPP_LPS
+ Paste_Summary_SPQ_LPS
+ 
+ End Sub
+
+Sub Reset_LPS_BL_Data()
+' Reset_BL_LPS_Data Macro
+'
+    'Sheets("LPS & BL").Visible = True
+    Workbooks("SPX allocation report active file.xlsm").Worksheets("LPS & BL").Activate
+    
+    Range("I5:J5").Select
+    Range(Selection, Selection.End(xlDown)).Select
+    Selection.Clear
+    
+    Range("O5").Select
+    Range(Selection, Selection.End(xlToRight)).Select
+    Range(Selection, Selection.End(xlDown)).Select
+    Selection.Clear
+
+    Range("C4").Select
+    Range(Selection, Selection.End(xlToRight)).Select
+    Range(Selection, Selection.End(xlDown)).Select
+    Selection.Clear
+    
+    'ActiveSheet.Visible = False
+
+End Sub
+ 
+ 
+ Sub Paste_Summary_SPP_LPS()
+'
+' Summary_SPP_LPS Macro
+
+Dim strFileName As String
+strFileName = "C:\SP\SPP LPS.xls"
+
+If (CheckFileExists(strFileName)) Then
+Workbooks.Open strFileName
+Else
+MsgBox "SPP File Does not exist"
+Exit Sub
+End If
+
+Workbooks("SPP LPS").Activate
+Range("B1").Select
+If ActiveCell <> "Est Compl Date" Then Exit Sub
+
+ActiveSheet.Name = "Data"
+    Rows("2:2").Select
+    Selection.Delete Shift:=xlUp
+    Columns("B:B").Select
+    Selection.Insert Shift:=xlToRight, CopyOrigin:=xlFormatFromLeftOrAbove
+    Range("B1").Select
+    ActiveCell.FormulaR1C1 = "SUM"
+    Range("B2").Select
+    ActiveCell.FormulaR1C1 = "=+SUM(RC[23]:RC[31])"
+    Range("B2").Select
+    Selection.Copy
+    Range("C2").Select
+    Selection.End(xlDown).Select
+    Range(Cells(3, 2), Cells(Selection.Row, 2)).Select
+    'Range(Selection, Selection.End(xlUp)).Select
+    'Range("B3:B408").Select
+    'Range("B408").Activate
+    ActiveSheet.Paste
+    Application.CutCopyMode = False
+
+
+'Declaring variables
+
+Application.DisplayAlerts = False
+'Worksheets("PivotTable").Delete
+Sheets.Add Before:=ActiveSheet
+ActiveSheet.Name = "PivotTable"
+Application.DisplayAlerts = True
+Set PSheet = Worksheets("PivotTable")
+Set DSheet = Worksheets("Data")
+'
+
+'Defining Data Range
+
+LastR = DSheet.Cells(Rows.Count, 1).End(xlUp).Row
+LastCol = DSheet.Cells(1, Columns.Count).End(xlToLeft).Column
+Set PRange = DSheet.Cells(1, 1).Resize(LastR, LastCol)
+'
+
+'Define Pivot Cache
+Set PCache = ActiveWorkbook.PivotCaches.Create _
+(SourceType:=xlDatabase, SourceData:=PRange)
+'. _
+'CreatePivotTable(TableDestination:=PSheet.Cells(2, 2), _
+'TableName:="LPSSPP")
+
+'Insert Blank Pivot Table
+Set PTable = PCache.CreatePivotTable _
+(TableDestination:=PSheet.Cells(2, 2), TableName:="LPSSPP")
+
+
+'Insert Row Fields
+With ActiveSheet.PivotTables("LPSSPP").PivotFields("PW Part")
+.Orientation = xlRowField
+.Position = 1
+End With
+
+
+    ActiveSheet.PivotTables("LPSSPP").AddDataField ActiveSheet.PivotTables( _
+        "LPSSPP").PivotFields("SUM"), "Sum of SUM", xlSum
+
+    Range("B3").Select
+    Range(Selection, Selection.End(xlToRight)).Select
+    Range(Selection, Selection.End(xlDown)).Select
+    Selection.Copy
+
+    Windows("SPX allocation report active file.xlsm").Activate
+    Worksheets("LPS & BL").Activate
+    Range("O5").Select
+    ActiveSheet.Paste
+    
+    Workbooks("SPP LPS").Worksheets("PivotTable").Activate
+    ActiveSheet.Range("A1").Copy
+    ActiveWorkbook.Close SaveChanges:=False
+    
+
+
+End Sub
+Function CheckFileExists(strFileName As String) As Boolean
+
+
+Dim strFileExists As String
+
+    strFileExists = Dir(strFileName)
+
+   If strFileExists = "" Then
+        CheckFileExists = False
+    Else
+        CheckFileExists = True
+    End If
+
+End Function
+Sub Paste_Summary_SPQ_LPS()
+'
+' Summary_SPQ_LPS Macro
+Dim strFileName As String
+strFileName = "C:\SP\SPQ LPS.xls"
+
+If (CheckFileExists(strFileName)) Then
+Workbooks.Open strFileName
+Else
+MsgBox "SPQ File Does not exist"
+Exit Sub
+End If
+
+Workbooks("SPQ LPS").Activate
+ActiveSheet.Name = "Data"
+
+Range("B1").Select
+
+If ActiveCell <> "Customer Name" Then Exit Sub
+    
+    Columns("AA:AA").Select
+    Selection.TextToColumns Destination:=Range("AA1"), DataType:=xlDelimited, _
+        TextQualifier:=xlDoubleQuote, ConsecutiveDelimiter:=False, Tab:=True, _
+        Semicolon:=False, Comma:=False, Space:=False, Other:=False, FieldInfo _
+        :=Array(1, 1), TrailingMinusNumbers:=True
+    Columns("AB:AB").Select
+    Selection.TextToColumns Destination:=Range("AB1"), DataType:=xlDelimited, _
+        TextQualifier:=xlDoubleQuote, ConsecutiveDelimiter:=False, Tab:=True, _
+        Semicolon:=False, Comma:=False, Space:=False, Other:=False, FieldInfo _
+        :=Array(1, 1), TrailingMinusNumbers:=True
+     
+    Rows("2:2").Select
+    Selection.Delete Shift:=xlUp
+    Columns("B:B").Select
+    Selection.Insert Shift:=xlToRight, CopyOrigin:=xlFormatFromLeftOrAbove
+    Range("B1").Select
+    ActiveCell.FormulaR1C1 = "SUM"
+    Range("B2").Select
+    ActiveCell.FormulaR1C1 = "=+SUM(RC[26]:RC[33])"
+    Range("B2").Select
+    Selection.Copy
+    Range("C2").Select
+    Selection.End(xlDown).Select
+    Range(Cells(3, 2), Cells(Selection.Row, 2)).Select
+    ActiveSheet.Paste
+    Application.CutCopyMode = False
+
+
+'Declaring variables
+
+Application.DisplayAlerts = False
+'Worksheets("PivotTable").Delete
+Sheets.Add Before:=ActiveSheet
+ActiveSheet.Name = "PivotTable"
+Application.DisplayAlerts = True
+Set PSheet = Worksheets("PivotTable")
+Set DSheet = Worksheets("Data")
+'
+
+'Defining Data Range
+
+LastR = DSheet.Cells(Rows.Count, 1).End(xlUp).Row
+LastCol = DSheet.Cells(1, Columns.Count).End(xlToLeft).Column
+Set PRange = DSheet.Cells(1, 1).Resize(LastR, LastCol)
+'
+
+'Define Pivot Cache
+Set PCache = ActiveWorkbook.PivotCaches.Create _
+(SourceType:=xlDatabase, SourceData:=PRange)
+
+'Insert Blank Pivot Table
+Set PTable = PCache.CreatePivotTable _
+(TableDestination:=PSheet.Cells(2, 2), TableName:="LPSSPQ")
+
+
+'Insert Row Fields
+With ActiveSheet.PivotTables("LPSSPQ").PivotFields("EPI Part")
+.Orientation = xlRowField
+.Position = 1
+End With
+
+
+    ActiveSheet.PivotTables("LPSSPQ").AddDataField ActiveSheet.PivotTables( _
+        "LPSSPQ").PivotFields("SUM"), "Sum of SUM", xlSum
+
+    Range("B3").Select
+    Range(Selection, Selection.End(xlToRight)).Select
+    Range(Selection, Selection.End(xlDown)).Select
+    Selection.Copy
+
+    Windows("SPX allocation report active file.xlsm").Activate
+    Worksheets("LPS & BL").Activate
+    Range("I5").Select
+    ActiveSheet.Paste
+    
+    Workbooks("SPQ LPS").Worksheets("PivotTable").Activate
+    ActiveSheet.Range("A1").Copy
+    ActiveWorkbook.Close SaveChanges:=False
+    
+
+
+End Sub
+
+Sub Load_BL_OpenQty()
+'
+' Load_BL_OpenQty Macro
+'
+Application.DisplayAlerts = False
+ 
+CleanBL
+
+BuildPivotOpenQty
+
+End Sub
+Sub CleanBL()
+
+Dim FileRange As Range
+Dim FileLastRow As Long
+Dim File As Range
+Dim Visible_cells As Long
+
+Application.DisplayAlerts = False
+
+
+Sheets.Add.Name = "Removed"
+''Sheets("Sheet2").Name = "Removed"
+
+Sheets("Sheet1").Select
+
+'Convert Ship To to number
+Columns("AA:AA").Select
+        Selection.TextToColumns Destination:=Range("AA1"), DataType:=xlDelimited, _
+        TextQualifier:=xlDoubleQuote, ConsecutiveDelimiter:=False, Tab:=True, _
+        Semicolon:=False, Comma:=False, Space:=False, Other:=False, FieldInfo _
+        :=Array(1, 1), TrailingMinusNumbers:=True
+
+
+Visible_cells = 0
+
+'Identifying Total Range
+Set FileRange = Range(Cells(1, 1), Cells(LastRow, 75))
+
+'Filter the Table with the given Range and Criteria
+With FileRange
+.AutoFilter Field:=2, Criteria1:="7000" ', Operator:=xlAnd
+Visible_cells = Application.WorksheetFunction.Subtotal(3, Range("A:A"))
+End With
+
+'Copy Filtered criteria in Removed Tab to keep backup
+If Visible_cells > 1 Then CopyPasteRemoved
+
+
+'Delete Plant 7000
+With FileRange
+.AutoFilter Field:=2, Criteria1:="7000", Operator:=xlAnd, Criteria1:="2900"
+.Offset(1, 0).SpecialCells(xlCellTypeVisible).EntireRow.Delete
+End With
+
+Selection.AutoFilter
+Visible_cells = 0
+
+Set FileRange = Range(Cells(1, 1), Cells(LastRow, 75))
+
+'Filter by Reclaim and Blanks in Type
+With FileRange
+.AutoFilter Field:=19, Criteria1:= _
+        "=Reclaim Wafer", Operator:=xlOr, Criteria2:="=" ', Operator:=xlAnd
+    Visible_cells = Application.WorksheetFunction.Subtotal(3, Range("A:A"))
+End With
+
+'Copy and Paste in Removed of Reclaims and Blanks
+If Visible_cells > 1 Then CopyPasteRemoved
+
+'Delete Reclaim and Blanks in Type
+With FileRange
+.AutoFilter Field:=19, Criteria1:= _
+        "=Reclaim Wafer", Operator:=xlOr, Criteria2:="="
+        .Offset(1, 0).SpecialCells(xlCellTypeVisible).EntireRow.Delete
+End With
+
+Selection.AutoFilter
+Visible_cells = 0
+
+Set FileRange = Range(Cells(1, 1), Cells(LastRow, 75))
+
+
+'Delete INGOT not going to Nagasaki
+
+'Filter the Table with the given Range and Criteria
+With FileRange
+.AutoFilter Field:=19, Criteria1:="Ingot"
+.AutoFilter Field:=1, Criteria1:="<>2000607"
+Visible_cells = Application.WorksheetFunction.Subtotal(3, Range("A:A"))
+End With
+
+'Copy Filtered criteria in Removed Tab to keep backup
+If Visible_cells > 1 Then CopyPasteRemoved
+
+
+'Delete Ingot Not Going to Nagasaki
+With FileRange
+.AutoFilter Field:=19, Criteria1:="Ingot"
+.AutoFilter Field:=1, Criteria1:="<>2000607"
+.Offset(1, 0).SpecialCells(xlCellTypeVisible).EntireRow.Delete
+End With
+
+Selection.AutoFilter
+Visible_cells = 0
+
+Set FileRange = Range(Cells(1, 1), Cells(LastRow, 75))
+
+
+
+'Delete Previous Shipments
+'Selection.AutoFilter
+
+
+Windows("SPX allocation report active file.xlsm").Activate
+Sheets("SPQ").Select
+Dim CurrentMonth As String
+Range("P1").Select
+CurrentMonth = Right(ActiveCell, 2)
+
+    Workbooks("BL").Activate
+    Range("DQ2").Select
+    ActiveCell.FormulaR1C1 = _
+        "=+CONCATENATE(" & CurrentMonth & ",""/"",""1"",""/"",YEAR(TODAY()))"
+
+'MONTH(TODAY())
+
+    Selection.Copy
+    Selection.PasteSpecial Paste:=xlPasteValues, Operation:=xlNone, SkipBlanks _
+        :=False, Transpose:=False
+        
+Dim CutoffDate As String
+CutoffDate = ActiveCell
+
+Set FileRange = Range(Cells(1, 1), Cells(LastRow, 75))
+
+With FileRange
+.AutoFilter Field:=27, Criteria1:= _
+        "<" & CutoffDate ', Operator:=xlAnd
+        '"<7/1/2023", Operator:=xlAnd
+        Visible_cells = Application.WorksheetFunction.Subtotal(3, Range("A:A"))
+End With
+
+'Copy and Paste Shipped
+If Visible_cells > 1 Then CopyPasteRemoved
+
+
+'Delete Shipped
+With FileRange
+.AutoFilter Field:=27, Criteria1:= _
+        "<" & CutoffDate
+        .Offset(1, 0).SpecialCells(xlCellTypeVisible).EntireRow.Delete
+End With
+
+Selection.AutoFilter
+
+Visible_cells = 0
+
+Set FileRange = Range(Cells(1, 1), Cells(LastRow, 75))
+
+'Filter by OpenQty Negative
+With FileRange
+.AutoFilter Field:=3, Criteria1:="<0", _
+        Operator:=xlAnd
+        Visible_cells = Application.WorksheetFunction.Subtotal(3, Range("A:A"))
+End With
+
+'Copy and Paste Negatives in Open Qty
+If Visible_cells > 1 Then CopyPasteRemoved
+
+
+'Delete Negatives in Open Qty
+
+With FileRange
+.AutoFilter Field:=3, Criteria1:="<0", _
+        Operator:=xlAnd
+        .Offset(1, 0).SpecialCells(xlCellTypeVisible).EntireRow.Delete
+
+End With
+
+Selection.AutoFilter
+Visible_cells = 0
+
+End Sub
+Sub BuildPivotOpenQty()
+
+ActiveSheet.Name = "Data"
+
+    Columns("A:A").Select
+    Selection.TextToColumns Destination:=Range("A1"), DataType:=xlDelimited, _
+        TextQualifier:=xlDoubleQuote, ConsecutiveDelimiter:=False, Tab:=True, _
+        Semicolon:=False, Comma:=False, Space:=False, Other:=False, FieldInfo _
+        :=Array(1, 1), TrailingMinusNumbers:=True
+
+
+'Declaring variables for Pivot
+
+Application.DisplayAlerts = False
+'Worksheets("PivotTable").Delete
+Sheets.Add Before:=ActiveSheet
+ActiveSheet.Name = "PivotTable"
+Application.DisplayAlerts = True
+Set PSheet = Worksheets("PivotTable")
+Set DSheet = Worksheets("Data")
+'
+
+'Defining Data Range
+
+LastR = DSheet.Cells(Rows.Count, 1).End(xlUp).Row
+LastCol = DSheet.Cells(1, Columns.Count).End(xlToLeft).Column
+Set PRange = DSheet.Cells(1, 1).Resize(LastR, LastCol)
+'
+
+'Define Pivot Cache
+Set PCache = ActiveWorkbook.PivotCaches.Create _
+(SourceType:=xlDatabase, SourceData:=PRange)
+
+'Insert Blank Pivot Table
+Set PTable = PCache.CreatePivotTable _
+(TableDestination:=PSheet.Cells(2, 2), TableName:="BLOpenQty")
+
+
+'Insert Row Fields
+With ActiveSheet.PivotTables("BLOpenQty").PivotFields("Material")
+.Orientation = xlRowField
+.Position = 1
+End With
+With ActiveSheet.PivotTables("BLOpenQty").PivotFields("Ship-to")
+        .Orientation = xlRowField
+        .Position = 2
+    End With
+
+    ActiveSheet.PivotTables("BLOpenQty").AddDataField ActiveSheet.PivotTables( _
+        "BLOpenQty").PivotFields("Open qty."), "Sum of Open qty.", xlSum
+
+    'Format Design of Table
+    'Repeat all labels
+    ActiveSheet.PivotTables("BLOpenQty").RepeatAllLabels xlRepeatLabels
+    
+    'Show in Tabular Form
+    ActiveSheet.PivotTables("BLOpenQty").RowAxisLayout xlTabularRow
+    'Remove Subtotals
+    ActiveSheet.PivotTables("BLOpenQty").PivotFields("Ship-to").Subtotals = Array _
+        (False, False, False, False, False, False, False, False, False, False, False, False)
+    ActiveSheet.PivotTables("BLOpenQty").PivotFields("Material").Subtotals = _
+        Array(False, False, False, False, False, False, False, False, False, False, False, False)
+
+    
+    Range("B3").Select
+    Range(Selection, Selection.End(xlToRight)).Select
+    Range(Selection, Selection.End(xlDown)).Select
+    Selection.Copy
+
+    Windows("SPX allocation report active file.xlsm").Activate
+    Worksheets("LPS & BL").Activate
+    Range("C4").Select
+    ActiveSheet.Paste
+    
+  '  Workbooks("SPQ LPS.xls").Worksheets("PivotTable").Activate
+   ' ActiveSheet.Range("A1").Copy
+    'ActiveWorkbook.Close SaveChanges:=False
+
+
+End Sub
+
+Sub CopyPasteRemoved()
+
+'Copy and Paste Negatives in Open Qty
+   Range(Cells(1, 1), Cells(LastRow, 75)).Select
+   Selection.Copy
+   
+   Sheets("Removed").Select
+    
+    If LastRow <> 1 Then
+    TempLastRow = LastRow + 1
+    Range("A" & TempLastRow).Select
+    ActiveSheet.Paste
+    Rows(TempLastRow).Select
+    Selection.Delete Shift:=xlUp
+    Else
+    ActiveSheet.Paste
+    End If
+    
+    Sheets("Sheet1").Activate
+
+End Sub
+
+Function LastRow() As Long
+
+Dim TempLast As Long
+TempLast = 1
+
+Range("A1").Select
+If ActiveCell <> "" Then
+Selection.End(xlDown).Select
+'Identifying Last Row
+TempLast = ActiveCell.Row
+End If
+
+LastRow = TempLast
+
+End Function
+
+Function GetUserName() As String
+ 
+GetUserName = Environ$("username")
+
+End Function
+
+
+
